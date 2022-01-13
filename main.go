@@ -10,71 +10,116 @@ import (
 )
 
 type Game struct {
+	initialized bool
+
 	drawOpts ebiten.DrawImageOptions
 
-	cursorX    int
-	cursorY    int
-	buttonDown bool
+	background *ebiten.Image
+
+	// Mouse state/graphics
+	cursorAbsX   int
+	cursorAbsY   int
+	cursorX      int
+	cursorY      int
+	cursorWidth  int
+	cursorHeight int
+	buttonDown   bool
+	cursor       *ebiten.Image
+
+	screenWidth  int
+	screenHeight int
 }
-
-var in *ebiten.Image
-var out *ebiten.Image
-var mouseIn bool
-
-var screenWidth int
-var screenHeight int
 
 type Sand struct {
 	x int
 	y int
 }
 
-func (g *Game) Init() {
-	in = ebiten.NewImage(screenWidth, screenHeight)
-	in.Fill(color.Gray{90})
+func (g *Game) Init(w, h int) {
+	g.screenWidth = w
+	g.screenHeight = h
 
-	out = ebiten.NewImage(screenWidth, screenHeight)
-	out.Fill(color.Gray{50})
+	g.cursor = ebiten.NewImage(int(g.cursorWidth), int(g.cursorHeight))
+	g.cursor.Fill(color.RGBA{255, 0, 0, 255})
+
+	g.background = ebiten.NewImage(g.screenWidth, g.screenHeight)
+	g.background.Fill(color.White)
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
 	g.drawOpts.GeoM.Reset()
 	g.drawOpts.ColorM.Reset()
 
-	if in == nil {
-		g.Init()
+	g.drawOpts.GeoM.Reset()
+
+	g.drawBackground(screen)
+	g.drawCursor(screen)
+
+	ebitenutil.DebugPrint(screen, fmt.Sprintf(
+		"X: %d Y: %d Btn: %t\nFPS: %0.2f",
+		g.cursorX, g.cursorY, g.buttonDown, ebiten.CurrentFPS()))
+}
+
+func (g *Game) drawBackground(screen *ebiten.Image) {
+	screen.DrawImage(g.background, &ebiten.DrawImageOptions{})
+}
+
+func (g *Game) drawCursor(screen *ebiten.Image) {
+	g.drawOpts.GeoM.Translate(float64(g.cursorX-(g.cursorWidth/2)), float64(g.cursorY-(g.cursorHeight/2)))
+	screen.DrawImage(g.cursor, &g.drawOpts)
+
+}
+
+func (g *Game) updateCursor() {
+	x, y := ebiten.CursorPosition()
+	dx, dy := g.cursorAbsX-x, g.cursorAbsY-y
+	g.cursorAbsX, g.cursorAbsY = x, y
+
+	g.cursorX -= dx
+	g.cursorY -= dy
+
+	if g.cursorX-g.cursorWidth < 0 {
+		g.cursorX = g.cursorWidth
+	} else if g.cursorX+g.cursorWidth > g.screenWidth {
+		g.cursorX = g.screenWidth - g.cursorWidth
 	}
 
-	if mouseIn {
-		screen.DrawImage(in, &g.drawOpts)
-	} else {
-		screen.DrawImage(out, &g.drawOpts)
+	if g.cursorY-g.cursorHeight < 0 {
+		g.cursorY = g.cursorHeight
+	} else if g.cursorY+g.cursorHeight > g.screenHeight {
+		g.cursorY = g.screenHeight - g.cursorHeight
 	}
 
-	ebitenutil.DebugPrint(screen, fmt.Sprintf("X: %d Y: %d Btn: %t", g.cursorX, g.cursorY, g.buttonDown))
+	g.buttonDown = ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
 }
 
 func (g *Game) Update() error {
-	g.cursorX, g.cursorY = ebiten.CursorPosition()
-
-	mouseIn = g.cursorX > 0 && g.cursorX < screenWidth && g.cursorY > 0 && g.cursorY < screenHeight
-	g.buttonDown = ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
+	// Determine deltas for cursor movement
+	g.updateCursor()
 
 	return nil
 }
 
-func (*Game) Layout(outerWidth, outerHeight int) (int, int) {
-	screenWidth = outerWidth
-	screenHeight = outerHeight
+func (g *Game) Layout(outerWidth, outerHeight int) (int, int) {
+	outerWidth, outerHeight = 640, 480
+	if !g.initialized {
+		g.Init(outerWidth, outerHeight)
+	}
 
 	return outerWidth, outerHeight
 }
 
 func main() {
-	ebiten.SetWindowSize(640, 480)
+	ebiten.SetWindowSize(1024, 768)
 	ebiten.SetWindowTitle("Life")
+	ebiten.SetCursorMode(ebiten.CursorModeCaptured)
 
-	if err := ebiten.RunGame(&Game{}); err != nil {
+	g := Game{
+		cursorWidth:  10,
+		cursorHeight: 10,
+	}
+
+	if err := ebiten.RunGame(&g); err != nil {
 		log.Fatal(err)
 	}
 }
