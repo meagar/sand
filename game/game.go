@@ -37,7 +37,6 @@ func init() {
 type Game struct {
 	initialized bool
 
-	sand               []Sand
 	sandImg            *ebiten.Image
 	blockImg           *ebiten.Image
 	ticksSinceLastSand int
@@ -140,8 +139,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	// g.drawSand(screen)
 
 	ebitenutil.DebugPrint(screen, fmt.Sprintf(
-		"X: %d Y: %d Btn: %t\nFPS: %0.2f\nSand: %d",
-		g.cursorX, g.cursorY, g.buttonDown, ebiten.CurrentFPS(), len(g.sand)))
+		"X: %d Y: %d Btn: %t\nFPS: %0.2f",
+		g.cursorX, g.cursorY, g.buttonDown, ebiten.CurrentFPS()))
 }
 
 func (g *Game) drawGrid(screen *ebiten.Image) {
@@ -185,15 +184,6 @@ func (g *Game) drawCursor(screen *ebiten.Image) {
 	opts.GeoM.Translate(x, y)
 
 	screen.DrawImage(g.cursorImg, &opts)
-}
-
-func (g *Game) drawSand(screen *ebiten.Image) {
-	ops := &ebiten.DrawImageOptions{}
-	for _, s := range g.sand {
-		ops.GeoM.Translate(float64(s.x), float64(s.y))
-		screen.DrawImage(g.sandImg, ops)
-		ops.GeoM.Reset()
-	}
 }
 
 //
@@ -249,7 +239,14 @@ func (g *Game) updateSand() {
 	}
 
 	for iy := g.gridHeight - 2; iy >= 0; iy-- {
-		for ix := g.gridWidth - 1; ix >= 0; ix-- {
+		sx := 0
+		dx := 1
+		ex := g.gridWidth - 1
+		if iy%2 == 0 {
+			dx = -1
+			sx, ex = ex, sx
+		}
+		for ix := sx; ix != ex; ix += dx {
 			cell := g.grid[iy][ix]
 			if cell != 1 {
 				continue
