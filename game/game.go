@@ -238,8 +238,10 @@ func (g *Game) updateSand() {
 		g.grid[y][x] = 1
 	}
 
-	for iy, row := range g.grid {
-		for ix, cell := range row {
+	for iy := g.gridHeight - 1; iy >= 0; iy-- {
+		for ix := g.gridWidth - 1; ix >= 0; ix-- {
+			cell := g.grid[iy][ix]
+
 			if cell == 0 || cell == 2 {
 				// Cell that is currently empty, or a cell into which we've already moved
 				continue
