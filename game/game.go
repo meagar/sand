@@ -5,15 +5,13 @@ import (
 	"image/color"
 	"log"
 	"math"
+	"math/rand"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
-	"github.com/hajimehoshi/ebiten/v2/examples/resources/fonts"
-
-	"golang.org/x/image/font"
-	"golang.org/x/image/font/opentype"
 )
 
+/*
 var (
 	mplusSmallFont font.Face
 )
@@ -35,12 +33,13 @@ func init() {
 		log.Fatal(err)
 	}
 }
-
+*/
 type Game struct {
 	initialized bool
 
 	sand               []Sand
 	sandImg            *ebiten.Image
+	blockImg           *ebiten.Image
 	ticksSinceLastSand int
 
 	gridWidth  int
@@ -75,9 +74,10 @@ func New() *Game {
 }
 
 func (g *Game) Init(w, h int) {
-	if g.initialized == true {
+	if g.initialized {
 		panic("double init")
 	}
+
 	g.initialized = true
 
 	log.Println("Init")
@@ -94,15 +94,20 @@ func (g *Game) Init(w, h int) {
 
 	for idx := range g.grid {
 		row := make([]int, g.gridWidth)
-		/*for idx := range row {
-			r := rand.Int()
-			fmt.Println(r)
-			if r > 8810822825046566661 {
-				row[idx] = 1
-			}
-		}*/
+		// for idx := range row {
+		// r := rand.Int()
+		// fmt.Println(r)
+		// if cointoss() && cointoss() {
+		// row[idx] = 2
+		// }
+		// }
 
 		g.grid[idx] = row
+	}
+
+	width := g.gridWidth / 4
+	for i := width; i < width*3; i++ {
+		g.grid[g.gridHeight/2][i] = 2
 	}
 
 	g.cursorImg = ebiten.NewImage(int(g.cursorWidth), int(g.cursorHeight))
@@ -111,9 +116,11 @@ func (g *Game) Init(w, h int) {
 	g.sandImg = ebiten.NewImage(g.gridScaleI, g.gridScaleI)
 	g.sandImg.Fill(color.RGBA{0, 255, 0, 255})
 
+	g.blockImg = ebiten.NewImage(g.gridScaleI, g.gridScaleI)
+	g.blockImg.Fill(color.RGBA{0, 0, 255, 255})
+
 	g.background = ebiten.NewImage(g.screenWidth, g.screenHeight)
 	g.background.Fill(color.White)
-
 }
 
 //
@@ -154,6 +161,9 @@ func (g *Game) drawGrid(screen *ebiten.Image) {
 				// text.Draw(screen, str, mplusSmallFont, int(x), int(y), color.Black)
 				opts.GeoM.Translate(math.Floor(float64(ix)*g.gridScaleF), math.Floor(float64(iy)*g.gridScaleF))
 				img := g.sandImg
+				if cell == 2 {
+					img = g.blockImg
+				}
 				screen.DrawImage(img, &opts)
 			}
 		}
@@ -238,49 +248,56 @@ func (g *Game) updateSand() {
 		g.grid[y][x] = 1
 	}
 
-	for iy := g.gridHeight - 1; iy >= 0; iy-- {
+	for iy := g.gridHeight - 2; iy >= 0; iy-- {
 		for ix := g.gridWidth - 1; ix >= 0; ix-- {
 			cell := g.grid[iy][ix]
+			if cell != 1 {
+				continue
+			}
 
-			if cell == 0 || cell == 2 {
+			if cell == 0 {
 				// Cell that is currently empty, or a cell into which we've already moved
 				continue
 			}
 
-			if iy+1 >= g.gridHeight {
-				// Bottom of the grid
-				continue
-			}
-
-			// if cell != 1 && cell != 3 {
-			// 	log.Fatalf("cell has value of %d", cell)
-			// }
-
-			// We're sand.
-
 			if g.grid[iy+1][ix] == 0 {
 				// The cell directly below us is empty
 				g.grid[iy][ix] -= 1
-				g.grid[iy+1][ix] += 2
-			} else if ix > 0 && g.grid[iy+1][ix-1] == 0 {
-				// fall off to the left
-				g.grid[iy][ix] -= 1
-				g.grid[iy+1][ix-1] += 2
-			} else if ix+1 < g.gridWidth && g.grid[iy+1][ix+1] == 0 {
-				// fall off to the right
-				g.grid[iy][ix] -= 1
-				g.grid[iy+1][ix+1] += 2
+				g.grid[iy+1][ix] = 1
+				continue
+			}
+
+			if cointoss() {
+				if ix > 0 && g.grid[iy+1][ix-1] == 0 {
+					// fall off to the left
+					g.grid[iy][ix] -= 1
+					g.grid[iy+1][ix-1] = 1
+				} else if ix+1 < g.gridWidth && g.grid[iy+1][ix+1] == 0 {
+					// fall off to the right
+					g.grid[iy][ix] -= 1
+					g.grid[iy+1][ix+1] = 1
+				}
+			} else {
+				if ix+1 < g.gridWidth && g.grid[iy+1][ix+1] == 0 {
+					// fall off to the right
+					g.grid[iy][ix] -= 1
+					g.grid[iy+1][ix+1] = 1
+				} else if ix > 0 && g.grid[iy+1][ix-1] == 0 {
+					// fall off to the left
+					g.grid[iy][ix] -= 1
+					g.grid[iy+1][ix-1] = 1
+				}
 			}
 		}
 	}
 
-	for iy, row := range g.grid {
-		for ix, cell := range row {
-			if cell == 2 {
-				g.grid[iy][ix] = 1
-			}
-		}
-	}
+	// for iy, row := range g.grid {
+	// 	for ix, cell := range row {
+	// 		if cell == 2 {
+	// 			g.grid[iy][ix] = 1
+	// 		}
+	// 	}
+	// }
 	// g.printGrid()
 }
 
@@ -293,6 +310,10 @@ func (g *Game) printGrid() {
 		}
 		fmt.Print("\n")
 	}
+}
+
+func cointoss() bool {
+	return rand.Intn(2) == 0
 }
 
 // Layout satisfies Ebiten's Game interface
