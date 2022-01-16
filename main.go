@@ -10,7 +10,7 @@ import (
 func main() {
 	ebiten.SetWindowSize(1024, 768)
 	ebiten.SetWindowTitle("Sand")
-	// ebiten.SetFullscreen(true)
+	ebiten.SetFullscreen(true)
 	ebiten.SetCursorMode(ebiten.CursorModeCaptured)
 
 	g := game.New()

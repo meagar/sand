@@ -9,6 +9,7 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
+	"github.com/hajimehoshi/ebiten/v2/inpututil"
 )
 
 /*
@@ -36,6 +37,7 @@ func init() {
 */
 type Game struct {
 	initialized bool
+	ticks       uint64
 
 	sandImg            *ebiten.Image
 	blockImg           *ebiten.Image
@@ -83,7 +85,7 @@ func (g *Game) Init(w, h int) {
 	g.screenWidth = w
 	g.screenHeight = h
 
-	g.gridWidth = 200
+	g.gridWidth = 150
 	g.gridHeight = int(float32(g.gridWidth*g.screenHeight) / float32(g.screenWidth))
 
 	g.gridScaleF = float64(g.screenWidth) / float64(g.gridWidth)
@@ -94,11 +96,7 @@ func (g *Game) Init(w, h int) {
 	for idx := range g.grid {
 		row := make([]int, g.gridWidth)
 		// for idx := range row {
-		// r := rand.Int()
-		// fmt.Println(r)
-		// if cointoss() && cointoss() {
-		// row[idx] = 2
-		// }
+		// row[idx] = 1
 		// }
 
 		g.grid[idx] = row
@@ -129,7 +127,7 @@ func (g *Game) Init(w, h int) {
 // Draw satisfies Ebiten's Game interface
 func (g *Game) Draw(screen *ebiten.Image) {
 	g.drawOpts.GeoM.Reset()
-	g.drawOpts.ColorM.Reset()
+	// g.drawOpts.ColorM.Reset()
 
 	g.drawOpts.GeoM.Reset()
 
@@ -145,12 +143,15 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 func (g *Game) drawGrid(screen *ebiten.Image) {
 	opts := ebiten.DrawImageOptions{}
+
 	opts.GeoM.Translate(g.gridScaleF*0.5, g.gridScaleF*0.5)
 	for iy, row := range g.grid {
 		for ix, cell := range row {
 			if cell != 0 {
-				opts.Filter = ebiten.FilterLinear
+				// opts.Filter = ebiten.FilterLinear
+				// opts.ColorM.Reset()
 				opts.GeoM.Reset()
+				// opts.ColorM.RotateHue((float64(g.ticks) + float64(ix+iy)) / 10)
 				// str := fmt.Sprintf("x") //%d,%d", ix, iy)
 				// bound, _ := font.BoundString(mplusSmallFont, str)
 				// w := (bound.Max.X - bound.Min.X).Ceil()
@@ -192,6 +193,8 @@ func (g *Game) drawCursor(screen *ebiten.Image) {
 
 // Update satisfies Ebiten's Game interface
 func (g *Game) Update() error {
+	g.ticks += 1
+
 	// Determine deltas for cursor movement
 	g.updateCursor()
 	g.updateSand()
@@ -220,9 +223,24 @@ func (g *Game) updateCursor() {
 	}
 
 	g.buttonDown = ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
+
+	if inpututil.IsKeyJustPressed(ebiten.KeyR) {
+		for i, row := range g.grid {
+			for j, cell := range row {
+				if cell == 1 {
+					g.grid[i][j] = 0
+				}
+			}
+		}
+	}
 }
 
 func (g *Game) updateSand() {
+	// snow
+	for i := 1; i < 10; i++ {
+		g.grid[0][random(g.gridWidth)] = 1
+
+	}
 	// g.ticksSinceLastSand++
 
 	// if g.ticksSinceLastSand >= 3 {
@@ -241,10 +259,11 @@ func (g *Game) updateSand() {
 	for iy := g.gridHeight - 2; iy >= 0; iy-- {
 		sx := 0
 		dx := 1
-		ex := g.gridWidth - 1
+		ex := g.gridWidth
 		if iy%2 == 0 {
+			sx = g.gridWidth - 1
+			ex = -1
 			dx = -1
-			sx, ex = ex, sx
 		}
 		for ix := sx; ix != ex; ix += dx {
 			cell := g.grid[iy][ix]
@@ -311,6 +330,9 @@ func (g *Game) printGrid() {
 
 func cointoss() bool {
 	return rand.Intn(2) == 0
+}
+func random(max int) int {
+	return rand.Intn(max)
 }
 
 // Layout satisfies Ebiten's Game interface
