@@ -6,6 +6,7 @@ import (
 	"log"
 	"math"
 	"math/rand"
+	"os"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
@@ -39,19 +40,25 @@ type Game struct {
 	initialized bool
 	ticks       uint64
 
-	sandImg            *ebiten.Image
-	blockImg           *ebiten.Image
-	ticksSinceLastSand int
+	// Sprites
+	sandImg    *ebiten.Image
+	blockImg   *ebiten.Image
+	background *ebiten.Image
 
+	// ticksSinceLastSand int
+
+	// Game state
+	snowing    bool
+	mode       TileType
 	gridWidth  int
 	gridHeight int
-	grid       [][]int
+	grid       Grid
+	nextGrid   Grid
 	gridScaleF float64 // The scaling factor between grid and screen
 	gridScaleI int
+	gravity    float64
 
 	drawOpts ebiten.DrawImageOptions
-
-	background *ebiten.Image
 
 	// Mouse state/graphics
 	cursorAbsX   int
@@ -71,7 +78,24 @@ func New() *Game {
 	return &Game{
 		cursorWidth:  10,
 		cursorHeight: 10,
+		gravity:      1,
+		mode:         Sand,
 	}
+}
+
+func makeGrid(width, height int) Grid {
+	grid := make([][]Tile, height)
+
+	for idx := range grid {
+		row := make([]Tile, width)
+		// for idx := range row {
+		// row[idx] = 1
+		// }
+
+		grid[idx] = row
+	}
+
+	return grid
 }
 
 func (g *Game) Init(w, h int) {
@@ -91,33 +115,40 @@ func (g *Game) Init(w, h int) {
 	g.gridScaleF = float64(g.screenWidth) / float64(g.gridWidth)
 	g.gridScaleI = int(math.Ceil(g.gridScaleF))
 
-	g.grid = make([][]int, g.gridHeight)
-
-	for idx := range g.grid {
-		row := make([]int, g.gridWidth)
-		// for idx := range row {
-		// row[idx] = 1
-		// }
-
-		g.grid[idx] = row
-	}
+	g.grid = makeGrid(g.gridWidth, g.gridHeight)
+	g.nextGrid = makeGrid(g.gridWidth, g.gridHeight)
 
 	width := g.gridWidth / 4
 	for i := width; i < width*3; i++ {
-		g.grid[g.gridHeight/2][i] = 2
+		g.grid[g.gridHeight/2][i].Type = Wall
 	}
 
 	g.cursorImg = ebiten.NewImage(int(g.cursorWidth), int(g.cursorHeight))
 	g.cursorImg.Fill(color.RGBA{255, 0, 0, 255})
 
 	g.sandImg = ebiten.NewImage(g.gridScaleI, g.gridScaleI)
-	g.sandImg.Fill(color.RGBA{0, 255, 0, 255})
+	g.sandImg.Fill(color.RGBA{255, 255, 255, 255})
 
 	g.blockImg = ebiten.NewImage(g.gridScaleI, g.gridScaleI)
 	g.blockImg.Fill(color.RGBA{0, 0, 255, 255})
 
 	g.background = ebiten.NewImage(g.screenWidth, g.screenHeight)
-	g.background.Fill(color.White)
+	g.background.Fill(color.Black)
+}
+
+func (g *Game) resetGrid() {
+	for i, row := range g.grid {
+		for j := range row {
+			g.grid[i][j] = Tile{
+				Type: Blank,
+			}
+		}
+	}
+
+	width := g.gridWidth / 4
+	for i := width; i < width*3; i++ {
+		g.grid[g.gridHeight/2][i].Type = Wall
+	}
 }
 
 //
@@ -137,8 +168,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	// g.drawSand(screen)
 
 	ebitenutil.DebugPrint(screen, fmt.Sprintf(
-		"X: %d Y: %d Btn: %t\nFPS: %0.2f",
-		g.cursorX, g.cursorY, g.buttonDown, ebiten.CurrentFPS()))
+		"Brush (1, 2, 3): %s\nGravity (g): %d\nSnow (s): %t\nReset: R\nFPS: %0.2f",
+		g.mode, int(g.gravity), g.snowing, ebiten.CurrentFPS()))
 }
 
 func (g *Game) drawGrid(screen *ebiten.Image) {
@@ -147,10 +178,9 @@ func (g *Game) drawGrid(screen *ebiten.Image) {
 	opts.GeoM.Translate(g.gridScaleF*0.5, g.gridScaleF*0.5)
 	for iy, row := range g.grid {
 		for ix, cell := range row {
-			if cell != 0 {
+			if cell.Type != Blank {
 				// opts.Filter = ebiten.FilterLinear
 				// opts.ColorM.Reset()
-				opts.GeoM.Reset()
 				// opts.ColorM.RotateHue((float64(g.ticks) + float64(ix+iy)) / 10)
 				// str := fmt.Sprintf("x") //%d,%d", ix, iy)
 				// bound, _ := font.BoundString(mplusSmallFont, str)
@@ -159,9 +189,10 @@ func (g *Game) drawGrid(screen *ebiten.Image) {
 				// x := float64(ix) * g.gridScale
 				// y := float64(iy) * g.gridScale
 				// text.Draw(screen, str, mplusSmallFont, int(x), int(y), color.Black)
+				opts.GeoM.Reset()
 				opts.GeoM.Translate(math.Floor(float64(ix)*g.gridScaleF), math.Floor(float64(iy)*g.gridScaleF))
 				img := g.sandImg
-				if cell == 2 {
+				if cell.Type == Wall {
 					img = g.blockImg
 				}
 				screen.DrawImage(img, &opts)
@@ -197,7 +228,7 @@ func (g *Game) Update() error {
 
 	// Determine deltas for cursor movement
 	g.updateCursor()
-	g.updateSand()
+	g.updateGrid()
 
 	return nil
 }
@@ -224,25 +255,48 @@ func (g *Game) updateCursor() {
 
 	g.buttonDown = ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
 
+	// Input handling
+
+	if inpututil.IsKeyJustPressed(ebiten.KeyQ) {
+		os.Exit(1)
+	}
+
 	if inpututil.IsKeyJustPressed(ebiten.KeyR) {
-		for i, row := range g.grid {
-			for j, cell := range row {
-				if cell == 1 {
-					g.grid[i][j] = 0
-				}
-			}
-		}
+		g.resetGrid()
+	}
+
+	if inpututil.IsKeyJustPressed(ebiten.KeyG) {
+		g.gravity = -g.gravity
+	}
+
+	if inpututil.IsKeyJustPressed(ebiten.Key1) {
+		g.mode = Sand
+	}
+
+	if inpututil.IsKeyJustPressed(ebiten.Key2) {
+		g.mode = Wall
+	}
+
+	if inpututil.IsKeyJustPressed(ebiten.Key3) {
+		g.mode = Blank
+	}
+
+	if inpututil.IsKeyJustPressed(ebiten.KeyS) {
+		g.snowing = !g.snowing
 	}
 }
 
-func (g *Game) updateSand() {
+func (g *Game) updateGrid() {
+	g.nextGrid.Reset()
+
 	// snow
-	for i := 1; i < 10; i++ {
-		g.grid[0][random(g.gridWidth)] = 1
-
+	if g.snowing {
+		for i := 1; i < 10; i++ {
+			g.grid[0][random(g.gridWidth)].Type = Sand
+		}
 	}
-	// g.ticksSinceLastSand++
 
+	// g.ticksSinceLastSand++
 	// if g.ticksSinceLastSand >= 3 {
 	// 	log.Printf("tick")
 	// 	g.ticksSinceLastSand = 0
@@ -253,10 +307,19 @@ func (g *Game) updateSand() {
 	if g.buttonDown {
 		x := int(math.Floor(float64(g.cursorX) / g.gridScaleF))
 		y := int(math.Floor(float64(g.cursorY) / g.gridScaleF))
-		g.grid[y][x] = 1
+		g.grid[y][x].Type = g.mode
 	}
 
-	for iy := g.gridHeight - 2; iy >= 0; iy-- {
+	sy := 0
+	ey := g.gridHeight
+	dy := 1
+	if g.gravity > 0 {
+		sy = g.gridHeight - 1
+		ey = -1
+		dy = -1
+	}
+
+	for iy := sy; iy != ey; iy += dy {
 		sx := 0
 		dx := 1
 		ex := g.gridWidth
@@ -265,47 +328,66 @@ func (g *Game) updateSand() {
 			ex = -1
 			dx = -1
 		}
+
 		for ix := sx; ix != ex; ix += dx {
 			cell := g.grid[iy][ix]
-			if cell != 1 {
+
+			if cell.Type == Wall {
+				g.nextGrid[iy][ix].Type = Wall
 				continue
 			}
 
-			if cell == 0 {
-				// Cell that is currently empty, or a cell into which we've already moved
+			if cell.Type == Blank {
 				continue
 			}
 
-			if g.grid[iy+1][ix] == 0 {
+			nextY := iy + int(g.gravity)
+
+			if nextY == g.gridHeight || nextY < 0 {
+				// We're blocked, stay in place
+				g.nextGrid[iy][ix] = g.grid[iy][ix]
+				continue
+			}
+
+			if g.nextGrid[nextY][ix].Type == Blank {
 				// The cell directly below us is empty
-				g.grid[iy][ix] -= 1
-				g.grid[iy+1][ix] = 1
+				// g.nextGrid[iy][ix].Type = Blank
+				g.nextGrid[nextY][ix].Type = Sand
 				continue
 			}
 
 			if cointoss() {
-				if ix > 0 && g.grid[iy+1][ix-1] == 0 {
+				if ix > 0 && g.nextGrid[nextY][ix-1].Type == Blank {
 					// fall off to the left
-					g.grid[iy][ix] -= 1
-					g.grid[iy+1][ix-1] = 1
-				} else if ix+1 < g.gridWidth && g.grid[iy+1][ix+1] == 0 {
+					// g.grid[iy][ix].Type = Blank
+					g.nextGrid[nextY][ix-1].Type = Sand
+					continue
+				} else if ix+1 < g.gridWidth && g.nextGrid[nextY][ix+1].Type == Blank {
 					// fall off to the right
-					g.grid[iy][ix] -= 1
-					g.grid[iy+1][ix+1] = 1
+					// g.grid[iy][ix].Type = Blank
+					g.nextGrid[nextY][ix+1].Type = Sand
+					continue
 				}
 			} else {
-				if ix+1 < g.gridWidth && g.grid[iy+1][ix+1] == 0 {
+				if ix+1 < g.gridWidth && g.nextGrid[nextY][ix+1].Type == Blank {
 					// fall off to the right
-					g.grid[iy][ix] -= 1
-					g.grid[iy+1][ix+1] = 1
-				} else if ix > 0 && g.grid[iy+1][ix-1] == 0 {
+					// g.grid[iy][ix].Type = Blank
+					g.nextGrid[nextY][ix+1].Type = Sand
+					continue
+				} else if ix > 0 && g.nextGrid[nextY][ix-1].Type == Blank {
 					// fall off to the left
-					g.grid[iy][ix] -= 1
-					g.grid[iy+1][ix-1] = 1
+					// g.nextGrid[iy][ix].Type = Sand
+					g.nextGrid[nextY][ix-1].Type = Sand
+					continue
 				}
 			}
+
+			// We were unable to move this sand, copy to the same position
+			g.nextGrid[iy][ix] = g.grid[iy][ix]
 		}
 	}
+
+	g.grid, g.nextGrid = g.nextGrid, g.grid
 
 	// for iy, row := range g.grid {
 	// 	for ix, cell := range row {
